@@ -1,0 +1,30 @@
+{
+  "name": "bingelist_backend",
+  "version": "1.0.0",
+  "description": "backend for the movie recommendation website 'bingelist'",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vimalvijay82/binglist-backend.git"
+  },
+  "author": "T V Nithin and Vimal Vijay",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/vimalvijay82/binglist-backend/issues"
+  },
+  "homepage": "https://github.com/vimalvijay82/binglist-backend#readme",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "nodemon": "^3.0.1",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "prettier": "3.0.3"
+  }
+}
