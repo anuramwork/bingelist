@@ -11,6 +11,8 @@ const {
   delete_list,
   view_list,
   similar_content,
+  watch_fav,
+  add_movie_watch
 } = require("../controllers/controllers_bingelist")
 
 // creating the router object
@@ -25,4 +27,6 @@ router.route("/search_movie").get(search_movie)
 router.route("/delete_list").post(delete_list)
 router.route("/view_list").get(view_list)
 router.route("/similar_content").post(similar_content)
+router.route("/watch_fav").get(watch_fav)
+router.route("/add_movie_watch").post(add_movie_watch)
 module.exports = router

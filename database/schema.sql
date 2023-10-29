@@ -1,5 +1,10 @@
 CREATE DATABASE bingelist;
 
+507089
+575264
+951491
+807172
+
 CREATE TABLE users(
     user_id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
@@ -15,7 +20,7 @@ CREATE TABLE user_list(
 CREATE TABLE lists(
     list_id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    list_emoji VARCHAR(255) NOT NULL,
+    list_emoji VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_id INTEGER REFERENCES users(user_id)

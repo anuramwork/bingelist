@@ -8,7 +8,8 @@ const dotenv = require("dotenv").config()
 const app = express()
 
 // retreive port value from environmental variables
-const port = process.env.PORT
+// const port = process.env.PORT
+const port = 5000
 
 app.use(require("./routes/route_binglelist"))
 
