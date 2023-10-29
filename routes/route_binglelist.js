@@ -7,13 +7,17 @@ const {
   add_movie_list,
   remove_movie_list,
   discover,
-  search_movie,
+  search,
   delete_list,
   view_list,
   similar_content,
-  watch_fav,
-  add_movie_watch
+  watched_or_faved,
+  add_to_watchlist,
+  add_to_favlist,
+  lists,
+  movie_details
 } = require("../controllers/controllers_bingelist")
+
 
 // creating the router object
 const router = express.Router()
@@ -23,10 +27,13 @@ router.route("/create_list").post(create_list)
 router.route("/add_movie_list").post(add_movie_list)
 router.route("/remove_movie_list").post(remove_movie_list)
 router.route("/discover").get(discover)
-router.route("/search_movie").get(search_movie)
+router.route("/search").get(search)
 router.route("/delete_list").post(delete_list)
 router.route("/view_list").get(view_list)
-router.route("/similar_content").post(similar_content)
-router.route("/watch_fav").get(watch_fav)
-router.route("/add_movie_watch").post(add_movie_watch)
+router.route("/similar_content").get(similar_content)
+router.route("/watched_or_faved").post(watched_or_faved)
+router.route("/add_to_watchlist").post(add_to_watchlist)
+router.route("/add_to_favlist").post(add_to_favlist)
+router.route("/lists").get(lists)
+router.route("/movie_details").get(movie_details)
 module.exports = router

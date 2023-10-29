@@ -4,125 +4,198 @@ const express = require("express")
 // import the axios module for api calling
 const axios = require("axios")
 
+// uuid package to generate  universally unique identifiers (UUIDs)
+const { v4: uuidv4 } = require("uuid")
+
 // import postgre database
 const pool = require("../database/db")
 
-const app = express()
+// importing constants
+const constants = require('../constant')
 
-// supporting functions
-const watched = async (movieId, userId) => {
+// SUPPORTING FUNCTIONS
+const watched = async (movieId, userId, type) => {
   try {
     var watchId = await pool.query(
       "SELECT watch_lid FROM users WHERE user_id =$1",
       [userId]
     )
     watchId = watchId.rows[0].watch_lid
-    // console.log(watchId)
     const isWatched = await pool.query(
-      "SELECT EXISTS (SELECT 1 FROM list_movies WHERE movie_id = $1 AND list_id = $2)",
-      [movieId, watchId]
+      "SELECT EXISTS (SELECT 1 FROM list_movies WHERE movie_id = $1 AND list_id = $2 AND type = $3)",
+      [movieId, watchId, type]
     )
-    // console.log(isWatched)
     ret = isWatched.rows[0].exists
-
     return ret
   } catch (err) {
     console.error(err.message)
   }
 }
 
-const favourite = async (movieId, userId) => {
+const favourite = async (movieId, userId, type) => {
   try {
     var favId = await pool.query(
       "SELECT fav_lid FROM users WHERE user_id =$1",
       [userId]
     )
     favId = favId.rows[0].fav_lid
-    //   console.log(favId)
     const isFaved = await pool.query(
-      "SELECT EXISTS (SELECT 1 FROM list_movies WHERE movie_id = $1 AND list_id = $2)",
-      [movieId, favId]
+      "SELECT EXISTS (SELECT 1 FROM list_movies WHERE movie_id = $1 AND list_id = $2 AND type = $3)",
+      [movieId, favId, type]
     )
     ret = isFaved.rows[0].exists
-    //   console.log(ret)
     return ret
   } catch (err) {
     console.error(err.message)
   }
 }
-const add_movie_watch = async (req, res) => {
-  try{
-    const movieId = req.query.movieId
-    const userId = req.query.userId
-    const type = req.query.type
-    const wactchLId = await pool.query(
-      "SELECT watch_lid FROM users WHERE user_id = $1",
-      [userId]
-    )
-    const watchId = wactchLId.rows[0].watch_lid
-    //media_type = 1 if type = movie, 0 if type = tv
-    var media_type
-    if(type == 'movie'){
-      media_type = true
+
+const transformItems = (items, type, poster_path) => {
+  return items.map((item) => {
+    return {
+      adult: item.adult,
+      id: item.id,
+      title: item.title || item.name,
+      language: item.original_language,
+      poster_path: poster_path + item.poster_path,
+      media_type: item.media_type || type,
+      genre_ids: item.genre_ids,
+      release_date: item.release_date || item.first_air_date,
+      vote_average: item.vote_average,
     }
-    else{
-      media_type = false
-    }
-    //Insert into list_movies
-    const insertMovie = await pool.query(
-      "INSERT INTO list_movies (list_id, movie_id, type) VALUES ($1, $2, $3)",
-      [watchId, movieId, media_type]
-    )
+  })
+}
+const get_details = async (movieId, media_type) => {
+  const API_URL =
+    "https://api.themoviedb.org/3/" +
+    media_type +
+    "/" +
+    movieId +
+    "?language=en-US&append_to_response=videos,credits"
+  const API_TOKEN =
+    "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+  const detailObject = await axios.get(API_URL, {
+    headers: {
+      accept: "application/json",
+      Authorization: API_TOKEN,
+    },
+  })
+  const movieDetails = detailObject.data
+  ret = transformDetailItems(movieDetails, media_type)
+  return ret
+}
+
+const transformDetailItems = (item, media_type) => {
+  const poster_path = "https://image.tmdb.org/t/p/w500/"
+  var language = {
+    name: item.spoken_languages[0].english_name,
+    iso_code: item.spoken_languages[0].iso_639_1,
   }
-  catch(err){
-    console.error(err.message)
+  var country = item.production_companies[0].origin_country
+  var credits = []
+  var casts = []
+  for (var i = 0; i < Math.min(item.credits.cast.length, 8); i++) {
+    casts.push({
+      name: item.credits.cast[i].name,
+      role: item.credits.cast[i].character,
+      img_url: poster_path + item.credits.cast[i].profile_path,
+    })
+  }
+  for (var i = 0; i < item.credits.crew.length; i++) {
+    if (item.credits.crew[i].job == "Director") {
+      credits.push({ title: "Director", name: item.credits.crew[i].name })
+    }
+    if (item.credits.crew[i].job == "Director of Photography") {
+      credits.push({
+        title: "Cinematography",
+        name: item.credits.crew[i].name,
+      })
+    }
+  }
+  for (var i = 0; i < item?.created_by?.length; i++) {
+    credits.push({
+      title: "Creator",
+      name: item?.created_by[i].name,
+    })
+  }
+  const trailer_path = "https://www.youtube.com/watch?v="
+  for (var i = 0; i < item?.videos?.results?.length; i++) {
+    if (
+      item?.videos?.results[i]?.type == "Trailer" &&
+      item?.videos?.results[i]?.site == "YouTube"
+    ) {
+      var trailer = trailer_path + item?.videos?.results[i]?.key
+      break
+    }
+  }
+  return {
+    adult: item.adult,
+    id: item.id,
+    title: item.title || item.name,
+    language: language,
+    poster_path: poster_path + item.poster_path,
+    media_type: media_type,
+    genres: item.genres,
+    release_date: item.release_date || item.first_air_date,
+    vote_average: item.vote_average,
+    duration: item?.runtime,
+    seasons: item?.seasons?.length,
+    last_air_date: item?.last_air_date,
+    synopsis: item.overview,
+    country: country,
+    credits: credits,
+    casts: casts,
+    trailer_url: trailer,
   }
 }
 
 // Controllers for the corresponding routes
 const create_list = async (req, res) => {
   try {
+    const list_id = uuidv4()
+    console.log(list_id)
     const listName = req.query.listName
-    const userId = req.query.userId
+    // const userId = req.query.userId
+    const userId = 1
     const listEmoji = req.query.listEmoji
-    // Query the database to find the current maximum list_id
-    const maxListIdQuery = await pool.query(
-      "SELECT MAX(list_id) FROM lists"
-    );
-
-    // Get the maximum list_id value and increment it by one to get the next available list_id
-    const maxListId = maxListIdQuery.rows[0].max || 0; // Handle the case where there are no rows yet
-    const nextListId = maxListId + 1;
 
     const newList = await pool.query(
-      "INSERT INTO lists (name, list_emoji, user_id) VALUES ($1, $2, $3) RETURNING *",
-      [listName, listEmoji, userId]
+      "INSERT INTO lists (list_id, name, list_emoji, user_id) VALUES ($1, $2, $3, $4) RETURNING *",
+      [list_id, listName, listEmoji, userId]
     )
-    // console.log()
     const newUserList = await pool.query(
       "INSERT INTO user_list (user_id, list_id) VALUES ($1, $2)",
-      [userId, newList.rows[0].id]
+      [userId, newList.rows[0].list_id]
     )
-    res.send("List created successfully")
+    ret = {
+      listId: newList.rows[0].list_id,
+      created: newList.rows[0].created_at,
+      modified: newList.rows[0].updated_at,
+      name: listName,
+      count: 0,
+      emoji: listEmoji,
+    }
+    console.log(ret)
+    res.json(ret)
   } catch (err) {
     console.error(err.message)
   }
 }
-
+// incomplete
 const add_movie_list = async (req, res) => {
   try {
     const listId = req.query.listId
     const movieId = req.query.movieId
     const userId = req.query.userId
+    const type = req.query.media_type
     const existObject = await pool.query(
       "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id = $1 AND list_id = $2)",
       [userId, listId]
     )
-    // console.log(existObject.rows[0].exists)
     if (existObject.rows[0].exists == true) {
       const addMovie = await pool.query(
-        "INSERT INTO list_movies (list_id, movie_id) VALUES ($1, $2)",
-        [listId, movieId]
+        "INSERT INTO list_movies (list_id, movie_id, type ) VALUES ($1, $2 $3)",
+        [listId, movieId, type]
       )
       res.send("Movie added successfully")
     } else {
@@ -132,7 +205,7 @@ const add_movie_list = async (req, res) => {
     console.error(err.message)
   }
 }
-
+// incomplete
 const remove_movie_list = async (req, res) => {
   try {
     const listId = req.query.listId
@@ -156,36 +229,18 @@ const remove_movie_list = async (req, res) => {
   }
 }
 
-const watch_fav = async (req, res) => {
-  try{
-    // console.log(req.body)
-    console.log(req)
-    // const movieIds = req.body.movieIds
-    // const userId = req.query.userId
-    // console.log(movieIds)
-    //return if movie is in watch list and fav list
-    const ret = []
-    // for(let i=0;i<movieIds.length;i++){
-    //   const isWatched = await watched(movieIds[i], userId)
-    //   const isFaved = await favourite(movieIds[i], userId)
-    //   ret.push([isWatched, isFaved])
-    // }
-    res.send(ret)
-  }
-  catch(err){
-    console.error(err.message)
-  }
-}
-
 const discover = async (req, res) => {
   try {
-    const userId = req.query.userId
     const trending_API_URL =
       "https://api.themoviedb.org/3/trending/all/week?language=en-US"
-    const upcoming_API_URL =
+    const upcomingMovie_API_URL =
       "https://api.themoviedb.org/3/movie/upcoming?language=en-US&page=1"
-    const popular_API_URL =
+    const popularMovie_API_URL =
       "https://api.themoviedb.org/3/movie/popular?language=en-US&page=1"
+    const upcomingTV_API_URL =
+      "https://api.themoviedb.org/3/tv/on_the_air?language=en-US&page=1"
+    const popularTV_API_URL =
+      "https://api.themoviedb.org/3/tv/popular?language=en-US&page=1"
     const API_TOKEN =
       "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
     const trendingObject = await axios.get(trending_API_URL, {
@@ -194,133 +249,117 @@ const discover = async (req, res) => {
         Authorization: API_TOKEN,
       },
     })
-    const upcomingObject = await axios.get(upcoming_API_URL, {
+    const upcomingObjectMovie = await axios.get(upcomingMovie_API_URL, {
       headers: {
         accept: "application/json",
         Authorization: API_TOKEN,
       },
     })
-    const popularObject = await axios.get(popular_API_URL, {
+    const popularObjectMovie = await axios.get(popularMovie_API_URL, {
       headers: {
         accept: "application/json",
         Authorization: API_TOKEN,
       },
     })
+    const popularObjectTV = await axios.get(popularTV_API_URL, {
+      headers: {
+        accept: "application/json",
+        Authorization: API_TOKEN,
+      },
+    })
+    const upcomingObjectTV = await axios.get(upcomingTV_API_URL, {
+      headers: {
+        accept: "application/json",
+        Authorization: API_TOKEN,
+      },
+    })
+    const poster_path = "https://image.tmdb.org/t/p/w500/"
     var resultList = {}
-    const transformItems = (items) => {
-      return items.map((item) => {
-        return {
-          adult: item.adult,
-          id: item.id,
-          title: item.title,
-          language: item.original_language,
-          poster_path: item.poster_path,
-          media_type: item.media_type || "movie",
-          genre_ids: item.genre_ids,
-          release_date: item.release_date,
-          vote_average: item.vote_average,
-        };
-      });
-    };
-    
-    resultList["trending"] = transformItems(trendingObject.data.results);
-    resultList["upcoming"] = transformItems(upcomingObject.data.results);
-    resultList["popular"] = transformItems(popularObject.data.results);
-    
-    
-    // resultList["trending"] =await Promise.all(trendingObject.data.results.map(item=>{
-    //     return {
-    //         adult:item.adult,
-    //         id:item.id,
-    //         title:item.title,
-    //         language:item.original_language,
-    //         poster_path:item.psoter_path,
-    //         media_type:item.media_type,
-    //         genre_ids:item.genre_ids,
-    //         release_date:item.release_date,
-    //         vote_average:item.vote_average,
-    //         watched:watched(item.id, userId),
-    //         fav:favourite(item.id, userId)
-    //     }
-    // }))
-    // resultList["upcoming"] = upcomingObject.data.results.map(item=>{
-    //   return {
-    //       adult:item.adult,
-    //       id:item.id,
-    //       title:item.title,
-    //       language:item.original_language,
-    //       poster_path:item.psoter_path,
-    //       media_type:item.media_type,
-    //       genre_ids:item.genre_ids,
-    //       release_date:item.release_date,
-    //       vote_average:item.vote_average,
-    //       watched:watched(item.id, userId),
-    //       fav:favourite(item.id, userId)
-    //   }
-    // })
-    // resultList["popular"] = popularObject.data.results.map(item=>{
-    //   return {
-    //       adult:item.adult,
-    //       id:item.id,
-    //       title:item.title,
-    //       language:item.original_language,
-    //       poster_path:item.psoter_path,
-    //       media_type:item.media_type,
-    //       genre_ids:item.genre_ids,
-    //       release_date:item.release_date,
-    //       vote_average:item.vote_average,
-    //       watched:watched(item.id, userId),
-    //       fav:favourite(item.id, userId)
-    //   }
-    // })
-    // for (let i = 0; i < resultList["trending"].length; i++) {
-    //   var watch = await watched(resultList["trending"][i]["id"], userId)
-    //   resultList["trending"][i]["watched"] = watch
-    //   var fav = await favourite(resultList["trending"][i]["id"], userId)
-    //   resultList["trending"][i]["fav"] = fav
-    // }
-    // for (let i = 0; i < resultList["popular"].length; i++) {
-    //   var watch = await watched(resultList["popular"][i]["id"], userId)
-    //   resultList["popular"][i]["watched"] = watch
-    //   var fav = await favourite(resultList["popular"][i]["id"], userId)
-    //   resultList["popular"][i]["fav"] = fav
-    // }
-    // for (let i = 0; i < resultList["upcoming"].length; i++) {
-    //   var watch = await watched(resultList["upcoming"][i]["id"], userId)
-    //   resultList["upcoming"][i]["watched"] = watch
-    //   var fav = await favourite(resultList["upcoming"][i]["id"], userId)
-    //   resultList["upcoming"][i]["fav"] = fav
-    // }
+    resultList["upcoming"] = {}
+    resultList["popular"] = {}
+
+    resultList["trending"] = transformItems(
+      trendingObject.data.results,
+      "movie",
+      poster_path
+    )
+    resultList["upcoming"]["movies"] = transformItems(
+      upcomingObjectMovie.data.results,
+      "movie",
+      poster_path
+    )
+    resultList["upcoming"]["tv"] = transformItems(
+      upcomingObjectTV.data.results,
+      "tv",
+      poster_path
+    )
+    resultList["popular"]["movies"] = transformItems(
+      popularObjectMovie.data.results,
+      "movie",
+      poster_path
+    )
+    resultList["popular"]["tv"] = transformItems(
+      popularObjectTV.data.results,
+      "tv",
+      poster_path
+    )
+
     res.send(resultList)
   } catch (err) {
     console.error(err.message)
   }
 }
 
-const search_movie = async (req, res) => {
+const search = async (req, res) => {
   try {
-    const movieName = req.query.movieName
-    console.log(movieName)
-    const API_URL =
-      "https://api.themoviedb.org/3/search/multi?query=" +
-      movieName +
-      "&include_adult=false&language=en-US&page=1"
+    const searchQuery = req.query.searchQuery
+    const type = req.query.type
+    var pageNo = req.query.pageNo
+    if (pageNo == undefined) {
+      pageNo = 1
+    }
+    var API_URL
+    if (type == "all") {
+      API_URL =
+        "https://api.themoviedb.org/3/search/multi?query=" +
+        searchQuery +
+        "&include_adult=false&language=en-US&page=" +
+        pageNo
+    } else if (type == "movie") {
+      API_URL =
+        "https://api.themoviedb.org/3/search/movie?query=" +
+        searchQuery +
+        "&include_adult=false&language=en-US&page=" +
+        pageNo
+    } else if (type == "tv") {
+      API_URL =
+        "https://api.themoviedb.org/3/search/tv?query=" +
+        searchQuery +
+        "&include_adult=false&language=en-US&page=" +
+        pageNo
+    }
     const API_TOKEN =
       "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
-    const movieObject = await axios.get(API_URL, {
+    const searchQueryObject = await axios.get(API_URL, {
       headers: {
         accept: "application/json",
         Authorization: API_TOKEN,
       },
     })
-    const movieList = movieObject.data.results
-    console.log(movieList)
-    res.json(movieList)
+    const poster_path = "https://image.tmdb.org/t/p/w500/"
+    searchQueryObject.data.results = transformItems(
+      searchQueryObject.data.results,
+      type,
+      poster_path
+    )
+    const contentList = searchQueryObject.data
+    res.json(contentList)
   } catch (err) {
     console.error(err.message)
+    res.send("request failed")
   }
 }
-
+// incomplete
 const delete_list = async (req, res) => {
   try {
     const listId = req.query.listId
@@ -349,7 +388,7 @@ const delete_list = async (req, res) => {
     console.error(err.message)
   }
 }
-
+// incomplete
 const view_list = async (req, res) => {
   try {
     const listId = req.query.listId
@@ -372,53 +411,218 @@ const view_list = async (req, res) => {
   }
 }
 
-const similar_content = async (req, res) => {
+const lists = async (req, res) => {
   try {
-    const movieId = req.query.movieId
-    const type = req.query.type
-    if (type == 0) {
-      // movies
-      const API_URL =
-        "https://api.themoviedb.org/3/movie/278/similar?language=en-US&page=1"
-      const API_TOKEN =
-        "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
-      const response = await axios.get(API_URL, {
-        headers: {
-          accept: "application/json",
-          Authorization: API_TOKEN,
-        },
-      })
-      const data = response.data
-      res.json(data)
-    } //web series
-    else {
-      const API_URL =
-        "https://api.themoviedb.org/3/tv/series_id/similar?language=en-US&page=1"
-      const API_TOKEN =
-        "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
-      const response = await axios.get(API_URL, {
-        headers: {
-          accept: "application/json",
-          Authorization: API_TOKEN,
-        },
-      })
-      const data = response.data
-      res.json(data)
+    // const userId = req.query.userId
+    const userId = 1
+    const fav_lid = "26653342-767f-11ee-b962-0242ac120002"
+    const watch_lid = "129dc522-767f-11ee-b962-0242ac120002"
+    const listMovies = await pool.query(
+      "SELECT list_id, name, list_emoji, created_at, updated_at, user_id FROM lists WHERE user_id=$1",
+      [userId]
+    )
+    // console.log(listMovies.rows)
+    ret = []
+    for (var i = 0; i < listMovies?.rows?.length; i++) {
+      if (
+        listMovies.rows[i].list_id != fav_lid &&
+        listMovies.rows[i].list_id != watch_lid
+      ) {
+        const count = await pool.query(
+          "SELECT COUNT(movie_id) FROM list_movies WHERE list_id=$1",
+          [listMovies.rows[i].list_id]
+        )
+        ret.push({
+          listId: listMovies.rows[i].list_id,
+          created: listMovies.rows[i].created_at,
+          modified: listMovies.rows[i].updated_at,
+          name: listMovies.rows[i].name,
+          count: parseInt(count.rows[0].count),
+          emoji: listMovies.rows[i].list_emoji,
+        })
+      }
     }
+    res.json(ret)
   } catch (err) {
     console.error(err.message)
   }
 }
 
+const similar_content = async (req, res) => {
+  try {
+    const contentId = req.query.movieId
+    const type = req.query.media_type
+    var response
+    if (type == "movie") {
+      // movies
+      const API_URL =
+        "https://api.themoviedb.org/3/movie/" +
+        contentId +
+        "/similar?language=en-US&page=1"
+      const API_TOKEN =
+        "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+      response = await axios.get(API_URL, {
+        headers: {
+          accept: "application/json",
+          Authorization: API_TOKEN,
+        },
+      })
+    } //web series
+    else {
+      const API_URL =
+        "https://api.themoviedb.org/3/tv/" +
+        contentId +
+        "/similar?language=en-US&page=1"
+      const API_TOKEN =
+        "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+      response = await axios.get(API_URL, {
+        headers: {
+          accept: "application/json",
+          Authorization: API_TOKEN,
+        },
+      })
+    }
+    const poster_path = "https://image.tmdb.org/t/p/w500/"
+    var similarContent = response.data.results
+    similarContent = transformItems(similarContent, type, poster_path)
+    res.json(similarContent)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+
+const add_to_watchlist = async (req, res) => {
+  try {
+    const movieId = req.query.id
+    //const userId = req.query.userId
+    const userId = 1
+    const type = req.query.media_type
+    var isWatched = await watched(movieId, userId, type)
+    const watchObject = await pool.query(
+      "SELECT watch_lid FROM users WHERE user_id = $1",
+      [userId]
+    )
+    const watchId = watchObject.rows[0].watch_lid
+    //Insert into list_movies
+    console.log(isWatched)
+    if (isWatched == false) {
+      const insertMovie = await pool.query(
+        "INSERT INTO list_movies (list_id, movie_id, type) VALUES ($1, $2, $3)",
+        [watchId, movieId, type]
+      )
+    } else {
+      const insertMovie = await pool.query(
+        "DELETE FROM list_movies WHERE list_id = $1 AND movie_id=$2 AND type=$3",
+        [watchId, movieId, type]
+      )
+    }
+    var isFaved = await favourite(movieId, userId, type)
+    var watch_fav_list = {}
+    var key = type + "_" + movieId
+    watch_fav_list[key] = {
+      id: movieId,
+      media_type: type,
+      faved: isFaved,
+      watched: !isWatched,
+    }
+    res.json(watch_fav_list)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+
+const add_to_favlist = async (req, res) => {
+  try {
+    const movieId = req.query.id
+    //const userId = req.query.userId
+    const userId = 1
+    const type = req.query.media_type
+    var isFaved = await favourite(movieId, userId, type)
+    const favObject = await pool.query(
+      "SELECT fav_lid FROM users WHERE user_id = $1",
+      [userId]
+    )
+    const favId = favObject.rows[0].fav_lid
+    //Insert into list_movies
+    if (isFaved == false) {
+      const insertMovie = await pool.query(
+        "INSERT INTO list_movies (list_id, movie_id, type) VALUES ($1, $2, $3)",
+        [favId, movieId, type]
+      )
+    } else {
+      const insertMovie = await pool.query(
+        "DELETE FROM list_movies WHERE list_id = $1 AND movie_id=$2 AND type=$3",
+        [favId, movieId, type]
+      )
+    }
+    var isWatched = await watched(movieId, userId, type)
+    var watch_fav_list = {}
+    var key = type + "_" + movieId
+    watch_fav_list[key] = {
+      id: movieId,
+      media_type: type,
+      faved: !isFaved,
+      watched: isWatched,
+    }
+    res.json(watch_fav_list)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+
+const watched_or_faved = async (req, res) => {
+  try {
+    const movieList = req.body.movieList
+    const userId = 1
+    var watch_fav_list = {}
+    for (let i = 0; i < movieList.length; i++) {
+      var isWatched = await watched(
+        movieList[i].id,
+        userId,
+        movieList[i].media_type
+      )
+      var isFaved = await favourite(
+        movieList[i].id,
+        userId,
+        movieList[i].media_type
+      )
+      var key = movieList[i].media_type + "_" + movieList[i].id
+      watch_fav_list[key] = {
+        id: movieList[i].id,
+        media_type: movieList[i].media_type,
+        faved: isFaved,
+        watched: isWatched,
+      }
+    }
+    res.json(watch_fav_list)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+
+const movie_details = async (req, res) => {
+  try {
+    const movieId = req.query.id
+    const media_type = req.query.media_type
+    ret = await get_details(movieId, media_type)
+    console.log(ret)
+    res.json(ret)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
 module.exports = {
   create_list,
   add_movie_list,
   remove_movie_list,
   view_list,
   discover,
-  search_movie,
+  search,
   delete_list,
   similar_content,
-  watch_fav,
-  add_movie_watch
+  watched_or_faved,
+  add_to_watchlist,
+  add_to_favlist,
+  lists,
+  movie_details,
 }

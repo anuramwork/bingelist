@@ -6,19 +6,19 @@ CREATE DATABASE bingelist;
 807172
 
 CREATE TABLE users(
-    user_id SERIAL PRIMARY KEY,
+    user_id INTEGER PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
-    watch_lid INTEGER REFERENCES lists(list_id),
-    fav_lid INTEGER REFERENCES lists(list_id)
+    watch_lid UUID REFERENCES lists(list_id),
+    fav_lid UUID REFERENCES lists(list_id)
 );
 
 CREATE TABLE user_list(
     user_id INTEGER REFERENCES users(user_id),
-    list_id INTEGER REFERENCES lists(list_id)
+    list_id UUID REFERENCES lists(list_id)
 );
 
 CREATE TABLE lists(
-    list_id SERIAL PRIMARY KEY,
+    list_id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     list_emoji VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -44,9 +44,9 @@ CREATE TABLE movies(
 );
 
 CREATE TABLE list_movies(
-    list_id INTEGER REFERENCES lists(list_id),
+    list_id UUID REFERENCES lists(list_id),
     movie_id INT,
-    type BOOLEAN
+    type VARCHAR(10)
 );
 
 CREATE TABLE movies_genre(
