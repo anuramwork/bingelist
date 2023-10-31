@@ -6,24 +6,23 @@ CREATE DATABASE bingelist;
 807172
 
 CREATE TABLE users(
-    user_id INTEGER PRIMARY KEY,
-    email VARCHAR(255) NOT NULL,
+    user_id VARCHAR(100) PRIMARY KEY,
     watch_lid UUID REFERENCES lists(list_id),
     fav_lid UUID REFERENCES lists(list_id)
 );
 
 CREATE TABLE user_list(
-    user_id INTEGER REFERENCES users(user_id),
+    user_id VARCHAR(100) REFERENCES users(user_id),
     list_id UUID REFERENCES lists(list_id)
 );
 
 CREATE TABLE lists(
     list_id UUID PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    list_emoji VARCHAR(255),
+    name VARCHAR(100) NOT NULL,
+    list_emoji VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    user_id INTEGER REFERENCES users(user_id)
+    user_id VARCHAR(100) REFERENCES users(user_id)
 );
 
 CREATE TABLE movies(

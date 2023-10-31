@@ -11,7 +11,98 @@ const { v4: uuidv4 } = require("uuid")
 const pool = require("../database/db")
 
 // importing constants
-const constants = require('../constant')
+const constants = require("../constant")
+
+// import supporting functions
+const supportFunctions = require("../supporting_functions")
+
+const jsonwebtoken = require("jsonwebtoken")
+const { expressjwt: jwt } = require("express-jwt")
+const jwksRsa = require("jwks-rsa")
+
+const checkJwt = jwt({
+  secret: jwksRsa.expressJwtSecret({
+    jwksUri: "https://www.googleapis.com/oauth2/v3/certs", // Google's public key URL
+    cache: true,
+    rateLimit: true,
+  }),
+  audience:
+    "524308456980-3d17hpn4h6qhdnn32oap5q52uta8gbsa.apps.googleusercontent.com", // Replace with your Google Client ID
+  issuer: "https://accounts.google.com", // The issuer should be Google
+  algorithms: ["RS256"], // Use the RS256 algorithm
+})
+
+const sign_in = async (req, res) => {
+  try {
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const email = token.payload.email
+    const name = token.payload.name
+    const picture = token.payload.picture
+    const checkUser = await pool.query(
+      "SELECT EXISTS (SELECT 1 FROM users WHERE user_id = $1)",
+      [email]
+    )
+    if (checkUser.rows[0].exists == false) {
+      const userId = email
+      const fav_lid = uuidv4()
+      const watch_lid = uuidv4()
+      const newUser = await pool.query(
+        "INSERT INTO users (user_id, name, picture) VALUES ($1, $2, $3)",
+        [userId, name, picture]
+      )
+      const lists = await pool.query(
+        "INSERT INTO lists (list_id, name, list_emoji, user_id) VALUES ($1, 'Watched', $2, $3), ($4, 'Favourites', $5, $6)",
+        [
+          watch_lid,
+          constants.watch_emoji,
+          userId,
+          fav_lid,
+          constants.fav_emoji,
+          userId,
+        ]
+      )
+      const newUserList = await pool.query(
+        "INSERT INTO user_list (user_id, list_id) VALUES ($1, $2), ($3, $4)",
+        [userId, watch_lid, userId, fav_lid]
+      )
+      const alterUserList = await pool.query(
+        "UPDATE users SET watch_lid = $1, fav_lid = $2 WHERE user_id = $3",
+        [watch_lid, fav_lid, userId]
+      )
+      const ret = {
+        name: name,
+        picture: picture,
+        email: email,
+        fav_lid: fav_lid,
+        watch_lid: watch_lid,
+      }
+      console.log(ret)
+      res.json(ret)
+    } else {
+      const userObj = await pool.query(
+        "SELECT fav_lid, watch_lid FROM users WHERE user_id = $1",
+        [email]
+      )
+      const fav_lid = userObj.rows[0].fav_lid
+      const watch_lid = userObj.rows[0].watch_lid
+      const ret = {
+        name: name,
+        picture: picture,
+        email: email,
+        fav_lid: fav_lid,
+        watch_lid: watch_lid,
+      }
+      console.log(ret)
+      res.json(ret)
+    }
+  } catch (err) {
+    console.error(err.message)
+    res.sendStatus(500)
+  }
+}
 
 // SUPPORTING FUNCTIONS
 const watched = async (movieId, userId, type) => {
@@ -50,30 +141,33 @@ const favourite = async (movieId, userId, type) => {
   }
 }
 
-const transformItems = (items, type, poster_path) => {
-  return items.map((item) => {
-    return {
-      adult: item.adult,
-      id: item.id,
-      title: item.title || item.name,
-      language: item.original_language,
-      poster_path: poster_path + item.poster_path,
-      media_type: item.media_type || type,
-      genre_ids: item.genre_ids,
-      release_date: item.release_date || item.first_air_date,
-      vote_average: item.vote_average,
-    }
-  })
+const transformItems = (items, type) => {
+  return items
+    .filter((item) => item.media_type != "person")
+    .map((item) => {
+      return {
+        adult: item.adult,
+        id: item.id,
+        title: item.title || item.name,
+        language: item.original_language,
+        poster_path: constants.posterPath + item.poster_path,
+        media_type: item.media_type || type,
+        genre_ids: item.genre_ids,
+        release_date: item.release_date || item.first_air_date,
+        vote_average: item.vote_average,
+        duration: item?.runtime,
+      }
+    })
 }
-const get_details = async (movieId, media_type) => {
+const getDetails = async (movieId, media_type) => {
+  // console.log(movieId, media_type)
   const API_URL =
     "https://api.themoviedb.org/3/" +
     media_type +
     "/" +
     movieId +
     "?language=en-US&append_to_response=videos,credits"
-  const API_TOKEN =
-    "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+  const API_TOKEN = constants.API_TOKEN
   const detailObject = await axios.get(API_URL, {
     headers: {
       accept: "application/json",
@@ -81,12 +175,12 @@ const get_details = async (movieId, media_type) => {
     },
   })
   const movieDetails = detailObject.data
+  // console.log(movieDetails)
   ret = transformDetailItems(movieDetails, media_type)
   return ret
 }
 
 const transformDetailItems = (item, media_type) => {
-  const poster_path = "https://image.tmdb.org/t/p/w500/"
   var language = {
     name: item.spoken_languages[0].english_name,
     iso_code: item.spoken_languages[0].iso_639_1,
@@ -98,7 +192,7 @@ const transformDetailItems = (item, media_type) => {
     casts.push({
       name: item.credits.cast[i].name,
       role: item.credits.cast[i].character,
-      img_url: poster_path + item.credits.cast[i].profile_path,
+      img_url: constants.posterPath + item.credits.cast[i].profile_path,
     })
   }
   for (var i = 0; i < item.credits.crew.length; i++) {
@@ -133,7 +227,7 @@ const transformDetailItems = (item, media_type) => {
     id: item.id,
     title: item.title || item.name,
     language: language,
-    poster_path: poster_path + item.poster_path,
+    poster_path: constants.posterPath + item.poster_path,
     media_type: media_type,
     genres: item.genres,
     release_date: item.release_date || item.first_air_date,
@@ -148,17 +242,43 @@ const transformDetailItems = (item, media_type) => {
     trailer_url: trailer,
   }
 }
+const getWatchId = async (userId) => {
+  try {
+    var watchObject = await pool.query(
+      "SELECT watch_lid FROM users WHERE user_id =$1",
+      [userId]
+    )
+    watchId = watchObject.rows[0].watch_lid
+    return watchId
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+const getfavId = async (userId) => {
+  try {
+    var favObject = await pool.query(
+      "SELECT fav_lid FROM users WHERE user_id =$1",
+      [userId]
+    )
+    favId = favObject.rows[0].fav_lid
+    return favId
+  } catch (err) {
+    console.error(err.message)
+  }
+}
 
 // Controllers for the corresponding routes
 const create_list = async (req, res) => {
   try {
     const list_id = uuidv4()
-    console.log(list_id)
     const listName = req.query.listName
     // const userId = req.query.userId
-    const userId = 1
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
     const listEmoji = req.query.listEmoji
-
     const newList = await pool.query(
       "INSERT INTO lists (list_id, name, list_emoji, user_id) VALUES ($1, $2, $3, $4) RETURNING *",
       [list_id, listName, listEmoji, userId]
@@ -175,32 +295,52 @@ const create_list = async (req, res) => {
       count: 0,
       emoji: listEmoji,
     }
-    console.log(ret)
     res.json(ret)
   } catch (err) {
     console.error(err.message)
   }
 }
-// incomplete
 const add_movie_list = async (req, res) => {
   try {
-    const listId = req.query.listId
-    const movieId = req.query.movieId
-    const userId = req.query.userId
+    const allList = req.body
+    // console.log(allList.length)
+    const movieId = req.query.id
+    //const userId = req.query.userId
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
     const type = req.query.media_type
-    const existObject = await pool.query(
-      "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id = $1 AND list_id = $2)",
-      [userId, listId]
+    const userObject = await pool.query(
+      "SELECT fav_lid, watch_lid FROM users WHERE user_id=$1",
+      [userId]
     )
-    if (existObject.rows[0].exists == true) {
-      const addMovie = await pool.query(
-        "INSERT INTO list_movies (list_id, movie_id, type ) VALUES ($1, $2 $3)",
-        [listId, movieId, type]
+    const favLId = userObject.rows[0].fav_lid
+    const watchLId = userObject.rows[0].watch_lid
+    for (key in allList) {
+      var listId = key
+      var status = allList[key]
+      const existObject = await pool.query(
+        "SELECT EXISTS( SELECT 1 FROM user_list WHERE user_id =$1 AND list_id =$2)",
+        [userId, listId]
       )
-      res.send("Movie added successfully")
-    } else {
-      res.send("Incorrect list id")
+      var exists = existObject.rows[0].exists
+      if (exists == true && listId != favLId && listId != watchLId) {
+        if (status == true) {
+          const addMovie = await pool.query(
+            "INSERT INTO list_movies (list_id,movie_id,type) VALUES ($1,$2,$3)",
+            [listId, movieId, type]
+          )
+        } else {
+          const deleteMovie = await pool.query(
+            "DELETE FROM list_movies WHERE movie_id =$1 AND type = $2",
+            [movieId, type]
+          )
+        }
+      }
     }
+    res.sendStatus(200)
   } catch (err) {
     console.error(err.message)
   }
@@ -228,6 +368,65 @@ const remove_movie_list = async (req, res) => {
     console.error(err.message)
   }
 }
+const get_movie_lists = async (req, res) => {
+  var allList = {}
+  try {
+    const movieId = req.query.id
+    //const userId = req.query.userId
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
+    const type = req.query.media_type
+    const watchId = await getWatchId(userId)
+    const favId = await getfavId(userId)
+    const listObject = await pool.query(
+      "SELECT list_id FROM user_list WHERE user_id = $1 AND list_id != $2 AND list_id !=$3",
+      [userId, watchId, favId]
+    )
+    for (var i = 0; i < listObject.rows.length; i++) {
+      const isExistObject = await pool.query(
+        "SELECT EXISTS (SELECT 1 FROM list_movies WHERE list_id = $1 AND movie_id = $2 AND type=$3)",
+        [listObject.rows[i].list_id, movieId, type]
+      )
+      isExits = isExistObject.rows[0].exists
+      allList[listObject.rows[i].list_id] = isExits
+    }
+    res.json(allList)
+  } catch (err) {
+    res.json(allList)
+    console.error(err.message)
+  }
+}
+
+const quick_search = async (req, res) => {
+  try {
+    const type = "___"
+    const searchQuery = req.query.query
+    API_URL =
+      "https://api.themoviedb.org/3/search/multi?query=" +
+      searchQuery +
+      "&include_adult=false&language=en-US&page=1"
+    const API_TOKEN = constants.API_TOKEN
+    const searchQueryObject = await axios.get(API_URL, {
+      headers: {
+        accept: "application/json",
+        Authorization: API_TOKEN,
+      },
+    })
+    // console.log(searchQueryObject.data.results)
+    searchQueryObject.data.results = transformItems(
+      searchQueryObject.data.results.slice(0, 10),
+      type
+    )
+    const contentList = searchQueryObject.data.results
+    // console.log(contentList)
+    res.json(contentList)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
 
 const discover = async (req, res) => {
   try {
@@ -241,8 +440,7 @@ const discover = async (req, res) => {
       "https://api.themoviedb.org/3/tv/on_the_air?language=en-US&page=1"
     const popularTV_API_URL =
       "https://api.themoviedb.org/3/tv/popular?language=en-US&page=1"
-    const API_TOKEN =
-      "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+    const API_TOKEN = constants.API_TOKEN
     const trendingObject = await axios.get(trending_API_URL, {
       headers: {
         accept: "application/json",
@@ -273,40 +471,40 @@ const discover = async (req, res) => {
         Authorization: API_TOKEN,
       },
     })
-    const poster_path = "https://image.tmdb.org/t/p/w500/"
     var resultList = {}
     resultList["upcoming"] = {}
     resultList["popular"] = {}
 
     resultList["trending"] = transformItems(
       trendingObject.data.results,
-      "movie",
-      poster_path
+      "movie"
     )
     resultList["upcoming"]["movies"] = transformItems(
       upcomingObjectMovie.data.results,
-      "movie",
-      poster_path
+      "movie"
     )
     resultList["upcoming"]["tv"] = transformItems(
       upcomingObjectTV.data.results,
-      "tv",
-      poster_path
+      "tv"
     )
     resultList["popular"]["movies"] = transformItems(
       popularObjectMovie.data.results,
-      "movie",
-      poster_path
+      "movie"
     )
     resultList["popular"]["tv"] = transformItems(
       popularObjectTV.data.results,
-      "tv",
-      poster_path
+      "tv"
     )
 
     res.send(resultList)
   } catch (err) {
     console.error(err.message)
+  }
+}
+const random = async (req, res) => {
+  try {
+  } catch (err) {
+    console.err(err.message)
   }
 }
 
@@ -338,19 +536,17 @@ const search = async (req, res) => {
         "&include_adult=false&language=en-US&page=" +
         pageNo
     }
-    const API_TOKEN =
-      "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+    const API_TOKEN = constants.API_TOKEN
     const searchQueryObject = await axios.get(API_URL, {
       headers: {
         accept: "application/json",
         Authorization: API_TOKEN,
       },
     })
-    const poster_path = "https://image.tmdb.org/t/p/w500/"
+    console.log(searchQuery.data.results)
     searchQueryObject.data.results = transformItems(
       searchQueryObject.data.results,
-      type,
-      poster_path
+      type
     )
     const contentList = searchQueryObject.data
     res.json(contentList)
@@ -359,15 +555,21 @@ const search = async (req, res) => {
     res.send("request failed")
   }
 }
-// incomplete
 const delete_list = async (req, res) => {
   try {
     const listId = req.query.listId
-    const userId = req.query.userId
+    //const userId = req.query.userId
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
+    var response = {}
     const existObject = await pool.query(
       "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id = $1 AND list_id = $2)",
       [userId, listId]
     )
+
     if (existObject.rows[0].exists == true) {
       const removeListmovies = await pool.query(
         "DELETE FROM list_movies WHERE list_id = $1",
@@ -377,34 +579,129 @@ const delete_list = async (req, res) => {
         "DELETE FROM user_list WHERE list_id = $1",
         [listId]
       )
-      const removeLists = await pool.query("DELETE FROM lists WHERE id = $1", [
-        listId,
-      ])
-      res.send("list removed sucessfully")
+      const removeLists = await pool.query(
+        "DELETE FROM lists WHERE list_id = $1",
+        [listId]
+      )
+      response["deleted"] = true
+      res.json(response)
     } else {
-      res.send("list doesn't exist")
+      response["deleted"] = false
+      res.json(response)
+    }
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+const edit_list = async (req, res) => {
+  try {
+    const listId = req.query.listId
+    //const userId = req.query.userId
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
+    const listName = req.query.listName
+    const listEmoji = req.query.listEmoji
+    var response = {}
+    const existObject = await pool.query(
+      "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id = $1 AND list_id = $2)",
+      [userId, listId]
+    )
+
+    if (existObject.rows[0].exists == true) {
+      var updatedList = await pool.query(
+        "UPDATE lists SET name = $1, list_emoji =$2 WHERE list_id =$3 RETURNING *",
+        [listName, listEmoji, listId]
+      )
+      const count = await pool.query(
+        "SELECT COUNT(movie_id) FROM list_movies WHERE list_id=$1",
+        [listId]
+      )
+      response = {
+        listId: listId,
+        created: updatedList.rows[0].created_at,
+        modified: updatedList.rows[0].updated_at,
+        name: listName,
+        count: parseInt(count.rows[0].count),
+        emoji: listEmoji,
+      }
+      res.json(response)
+    } else {
+      res.sendStatus(500)
     }
   } catch (err) {
     console.error(err.message)
   }
 }
 // incomplete
-const view_list = async (req, res) => {
+const list_details = async (req, res) => {
   try {
     const listId = req.query.listId
-    const userId = req.query.userId
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
     const existObject = await pool.query(
       "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id = $1 AND list_id = $2)",
       [userId, listId]
     )
     if (existObject.rows[0].exists == true) {
-      const viewList = await pool.query(
-        "SELECT movie_id FROM list_movies WHERE list_id = $1",
+      const listObject = await pool.query(
+        "SELECT * FROM lists WHERE list_id = $1",
         [listId]
       )
-      res.json(viewList.rows)
+      var ret = {
+        listId: listObject.rows[0].list_id,
+        emoji: listObject.rows[0].list_emoji,
+        name: listObject.rows[0].name,
+        userId: listObject.rows[0].user_id,
+        createdAt: listObject.rows[0].created_at,
+        updatedAt: listObject.rows[0].updated_at,
+      }
+      ret["movies"] = []
+      const viewList = await pool.query(
+        "SELECT movie_id, type FROM list_movies WHERE list_id = $1",
+        [listId]
+      )
+      var count = viewList.rows.length
+      ret["count"] = count
+      // console.log(count)
+      var movieItems = []
+      for (var i = 0; i < count; i++) {
+        console.log(i, count)
+        var media_type = viewList.rows[i].type
+        var movie_id = viewList.rows[i].movie_id
+        console.log(media_type, movie_id)
+        const API_URL =
+          "https://api.themoviedb.org/3/" +
+          media_type +
+          "/" +
+          movie_id +
+          "?language=en-US"
+        const API_TOKEN = constants.API_TOKEN
+        var detailObject = await axios.get(API_URL, {
+          headers: {
+            accept: "application/json",
+            Authorization: API_TOKEN,
+          },
+        })
+        var movieDetails = detailObject.data
+        // console.log(movieDetails)
+        movieDetails["genre_ids"] = []
+        for (var j = 0; j < movieDetails.genres.length; j++) {
+          movieDetails["genre_ids"].push(movieDetails.genres[j].id)
+        }
+        movieDetails["media_type"] = media_type
+        // console.log(movieDetails)
+        movieItems.push(movieDetails)
+      }
+      ret["movies"] = transformItems(movieItems, "__")
+      res.json(ret)
     } else {
-      res.send("list doesn't exist")
+      res.sendStatus(404)
     }
   } catch (err) {
     console.error(err.message)
@@ -414,25 +711,34 @@ const view_list = async (req, res) => {
 const lists = async (req, res) => {
   try {
     // const userId = req.query.userId
-    const userId = 1
-    const fav_lid = "26653342-767f-11ee-b962-0242ac120002"
-    const watch_lid = "129dc522-767f-11ee-b962-0242ac120002"
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
+    console.log(userId)
+    const userObject = await pool.query(
+      "SELECT * FROM users WHERE user_id = $1",
+      [userId]
+    )
+    const fav_lid = userObject.rows[0].fav_lid
+    const watch_lid = userObject.rows[0].watch_lid
     const listMovies = await pool.query(
       "SELECT list_id, name, list_emoji, created_at, updated_at, user_id FROM lists WHERE user_id=$1",
       [userId]
     )
-    // console.log(listMovies.rows)
-    ret = []
+    ret = {}
+    ret["yourLists"] = []
     for (var i = 0; i < listMovies?.rows?.length; i++) {
+      const count = await pool.query(
+        "SELECT COUNT(movie_id) FROM list_movies WHERE list_id=$1",
+        [listMovies.rows[i].list_id]
+      )
       if (
         listMovies.rows[i].list_id != fav_lid &&
         listMovies.rows[i].list_id != watch_lid
       ) {
-        const count = await pool.query(
-          "SELECT COUNT(movie_id) FROM list_movies WHERE list_id=$1",
-          [listMovies.rows[i].list_id]
-        )
-        ret.push({
+        ret["yourLists"].push({
           listId: listMovies.rows[i].list_id,
           created: listMovies.rows[i].created_at,
           modified: listMovies.rows[i].updated_at,
@@ -440,6 +746,24 @@ const lists = async (req, res) => {
           count: parseInt(count.rows[0].count),
           emoji: listMovies.rows[i].list_emoji,
         })
+      } else if (listMovies.rows[i].list_id == fav_lid) {
+        ret["favourites"] = {
+          listId: listMovies.rows[i].list_id,
+          created: listMovies.rows[i].created_at,
+          modified: listMovies.rows[i].updated_at,
+          name: listMovies.rows[i].name,
+          count: parseInt(count.rows[0].count),
+          emoji: listMovies.rows[i].list_emoji,
+        }
+      } else {
+        ret["watched"] = {
+          listId: listMovies.rows[i].list_id,
+          created: listMovies.rows[i].created_at,
+          modified: listMovies.rows[i].updated_at,
+          name: listMovies.rows[i].name,
+          count: parseInt(count.rows[0].count),
+          emoji: listMovies.rows[i].list_emoji,
+        }
       }
     }
     res.json(ret)
@@ -459,8 +783,7 @@ const similar_content = async (req, res) => {
         "https://api.themoviedb.org/3/movie/" +
         contentId +
         "/similar?language=en-US&page=1"
-      const API_TOKEN =
-        "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+      const API_TOKEN = constants.API_TOKEN
       response = await axios.get(API_URL, {
         headers: {
           accept: "application/json",
@@ -473,8 +796,7 @@ const similar_content = async (req, res) => {
         "https://api.themoviedb.org/3/tv/" +
         contentId +
         "/similar?language=en-US&page=1"
-      const API_TOKEN =
-        "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs"
+      const API_TOKEN = constants.API_TOKEN
       response = await axios.get(API_URL, {
         headers: {
           accept: "application/json",
@@ -482,9 +804,8 @@ const similar_content = async (req, res) => {
         },
       })
     }
-    const poster_path = "https://image.tmdb.org/t/p/w500/"
     var similarContent = response.data.results
-    similarContent = transformItems(similarContent, type, poster_path)
+    similarContent = transformItems(similarContent, type)
     res.json(similarContent)
   } catch (err) {
     console.error(err.message)
@@ -495,7 +816,11 @@ const add_to_watchlist = async (req, res) => {
   try {
     const movieId = req.query.id
     //const userId = req.query.userId
-    const userId = 1
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
     const type = req.query.media_type
     var isWatched = await watched(movieId, userId, type)
     const watchObject = await pool.query(
@@ -504,7 +829,7 @@ const add_to_watchlist = async (req, res) => {
     )
     const watchId = watchObject.rows[0].watch_lid
     //Insert into list_movies
-    console.log(isWatched)
+    // console.log(isWatched)
     if (isWatched == false) {
       const insertMovie = await pool.query(
         "INSERT INTO list_movies (list_id, movie_id, type) VALUES ($1, $2, $3)",
@@ -534,8 +859,11 @@ const add_to_watchlist = async (req, res) => {
 const add_to_favlist = async (req, res) => {
   try {
     const movieId = req.query.id
-    //const userId = req.query.userId
-    const userId = 1
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
     const type = req.query.media_type
     var isFaved = await favourite(movieId, userId, type)
     const favObject = await pool.query(
@@ -573,7 +901,11 @@ const add_to_favlist = async (req, res) => {
 const watched_or_faved = async (req, res) => {
   try {
     const movieList = req.body.movieList
-    const userId = 1
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    // console.log(req.headers)
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    // console.log(token.payload)
+    const userId = token.payload.email
     var watch_fav_list = {}
     for (let i = 0; i < movieList.length; i++) {
       var isWatched = await watched(
@@ -604,8 +936,9 @@ const movie_details = async (req, res) => {
   try {
     const movieId = req.query.id
     const media_type = req.query.media_type
-    ret = await get_details(movieId, media_type)
-    console.log(ret)
+    console.log(movieId, media_type)
+    ret = await getDetails(movieId, media_type)
+    // console.log(ret)
     res.json(ret)
   } catch (err) {
     console.error(err.message)
@@ -615,7 +948,8 @@ module.exports = {
   create_list,
   add_movie_list,
   remove_movie_list,
-  view_list,
+  get_movie_lists,
+  list_details,
   discover,
   search,
   delete_list,
@@ -625,4 +959,8 @@ module.exports = {
   add_to_favlist,
   lists,
   movie_details,
+  edit_list,
+  checkJwt,
+  sign_in,
+  quick_search,
 }
