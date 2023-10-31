@@ -19,6 +19,8 @@ const supportFunctions = require("../supporting_functions")
 const jsonwebtoken = require("jsonwebtoken")
 const { expressjwt: jwt } = require("express-jwt")
 const jwksRsa = require("jwks-rsa")
+// const { all } = require("../routes/route_binglelist")
+// const { all } = require("../routes/route_binglelist")
 
 const checkJwt = jwt({
   secret: jwksRsa.expressJwtSecret({
@@ -79,7 +81,7 @@ const sign_in = async (req, res) => {
         fav_lid: fav_lid,
         watch_lid: watch_lid,
       }
-      console.log(ret)
+      // console.log(ret)
       res.json(ret)
     } else {
       const userObj = await pool.query(
@@ -95,7 +97,7 @@ const sign_in = async (req, res) => {
         fav_lid: fav_lid,
         watch_lid: watch_lid,
       }
-      console.log(ret)
+      // console.log(ret)
       res.json(ret)
     }
   } catch (err) {
@@ -177,6 +179,7 @@ const getDetails = async (movieId, media_type) => {
   const movieDetails = detailObject.data
   // console.log(movieDetails)
   ret = transformDetailItems(movieDetails, media_type)
+  // console.log(ret)
   return ret
 }
 
@@ -300,6 +303,31 @@ const create_list = async (req, res) => {
     console.error(err.message)
   }
 }
+
+const random_movie = async (req, res) => {
+  try {
+    const media_type = req.query.media_type
+    const API_URL =
+      "https://api.themoviedb.org/3/discover/" +
+      media_type +
+      "?include_adult=false&include_video=false&language=en-US&page=1&sort_by=popularity.desc"
+    const API_TOKEN = constants.API_TOKEN
+    const randomObject = await axios.get(API_URL, {
+      headers: {
+        accept: "application/json",
+        Authorization: API_TOKEN,
+      },
+    })
+    randomMedia = randomObject.data.results[0]
+    console.log(randomMedia)
+    ret = await getDetails(randomMedia.id, media_type)
+    // console.log(ret)
+    res.json(ret)
+  } catch (err) {
+    console.err(err.message)
+  }
+}
+
 const add_movie_list = async (req, res) => {
   try {
     const allList = req.body
@@ -311,6 +339,7 @@ const add_movie_list = async (req, res) => {
     const token = jsonwebtoken.decode(tokenId, { complete: true })
     // console.log(token.payload)
     const userId = token.payload.email
+    // console.log(allList, movieId, userId)
     const type = req.query.media_type
     const userObject = await pool.query(
       "SELECT fav_lid, watch_lid FROM users WHERE user_id=$1",
@@ -318,25 +347,36 @@ const add_movie_list = async (req, res) => {
     )
     const favLId = userObject.rows[0].fav_lid
     const watchLId = userObject.rows[0].watch_lid
-    for (key in allList) {
+    // console.log(allList)
+    for (let key in allList) {
       var listId = key
       var status = allList[key]
+      // console.log(key)
+      // console.log(listId, status)
       const existObject = await pool.query(
-        "SELECT EXISTS( SELECT 1 FROM user_list WHERE user_id =$1 AND list_id =$2)",
+        "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id =$1 AND list_id =$2)",
         [userId, listId]
       )
       var exists = existObject.rows[0].exists
+      // console.log(exists)
       if (exists == true && listId != favLId && listId != watchLId) {
         if (status == true) {
+          // console.log(listId, movieId, type)
           const addMovie = await pool.query(
-            "INSERT INTO list_movies (list_id,movie_id,type) VALUES ($1,$2,$3)",
+            "INSERT INTO list_movies (list_id, movie_id, type) VALUES ($1, $2, $3) RETURNING *",
             [listId, movieId, type]
           )
-        } else {
+          // console.log(listId)
+          console.log("insert")
+          // console.log(addMovie)
+        } else if (status == false) {
           const deleteMovie = await pool.query(
             "DELETE FROM list_movies WHERE movie_id =$1 AND type = $2",
             [movieId, type]
           )
+          // console.log(listId)
+          console.log("delete")
+          // console.log(deleteMovie.rows[0])
         }
       }
     }
@@ -671,10 +711,10 @@ const list_details = async (req, res) => {
       // console.log(count)
       var movieItems = []
       for (var i = 0; i < count; i++) {
-        console.log(i, count)
+        // console.log(i, count)
         var media_type = viewList.rows[i].type
         var movie_id = viewList.rows[i].movie_id
-        console.log(media_type, movie_id)
+        // console.log(media_type, movie_id)
         const API_URL =
           "https://api.themoviedb.org/3/" +
           media_type +
@@ -708,6 +748,175 @@ const list_details = async (req, res) => {
   }
 }
 
+const genLanguageOptions = async () => {
+  const API_URL = "https://api.themoviedb.org/3/configuration/languages"
+  const API_TOKEN = constants.API_TOKEN
+  var languagesObject = await axios.get(API_URL, {
+    headers: {
+      accept: "application/json",
+      Authorization: API_TOKEN,
+    },
+  })
+  // console.log(languagesObject.data.length)
+  var ret = []
+  for (var i = 0; i < languagesObject.data.length; i++) {
+    ret.push({
+      name: languagesObject.data[i].english_name,
+      value: languagesObject.data[i].iso_639_1,
+    })
+  }
+  ret.push({ name: "Any", value: "any" })
+  console.log(ret)
+  return ret
+}
+
+const genRatingOptions = async () => {
+  let ret = []
+  for (var i = 0; i < 11; i++) {
+    ret.push({ name: i, value: i })
+  }
+  ret.push({ name: "Any", value: "any" })
+  return ret
+}
+
+const genYearOptions = async () => {
+  let ret = []
+  let currentDate = new Date()
+  let currentYear = currentDate.getFullYear()
+  for (var i = 1865; i < currentYear + 1; i++) {
+    ret.push({ name: i, value: i })
+  }
+  ret.push({ name: "Any", value: "any" })
+  return ret
+}
+
+const filter_settings = async (req, res) => {
+  try {
+    const yearOptions = await genYearOptions()
+    const ratingOptions = await genRatingOptions()
+    const languageOptions = await genLanguageOptions()
+    var ret = {}
+    ret["browse"] = {}
+    ret["random"] = {}
+    ret["browse"]["filterSettings"] = {
+      sortOptions: [
+        { value: "popularity.desc", name: "Popularity" },
+        { value: "primary_release_date.desc", name: "Latest" },
+      ],
+      type: [
+        { name: "All", value: "all" },
+        { name: "Movies", value: "movies" },
+        { name: "TV Shows", value: "tv" },
+      ],
+      genres: [
+        { name: "Action", value: 28 },
+        { name: "Adventure", value: 12 },
+        { name: "Animation", value: 16 },
+        { name: "Comedy", value: 35 },
+        { name: "Crime", value: 80 },
+        { name: "Documentary", value: 99 },
+        { name: "Drama", value: 18 },
+        { name: "Family", value: 10751 },
+        { name: "Fantasy", value: 14 },
+        { name: "History", value: 36 },
+        { name: "Horror", value: 27 },
+        { name: "Music", value: 10402 },
+        { name: "Mystery", value: 9648 },
+        { name: "Romance", value: 10749 },
+        { name: "Sci Fi", value: 878 },
+        { name: "TV Movie", value: 10770 },
+        { name: "Thriller", value: 53 },
+        { name: "War", value: 10752 },
+        { name: "Western", value: 37 },
+        { name: "Kids", value: 10762 },
+        { name: "News", value: 10763 },
+        { name: "Reality", value: 10764 },
+        { name: "Soap", value: 10766 },
+        { name: "Talk", value: 10767 },
+      ],
+      yearOptions: yearOptions,
+      ratingOptions: ratingOptions,
+      languageOptions: languageOptions.slice(1),
+      durationOptions: [
+        { min: "any", max: 120, name: "Under 2hr" },
+        { min: 180, max: "any", name: "Above 3hr" },
+        { min: "any", max: "any", name: "Any" },
+      ],
+      adult: true,
+    }
+    ret["browse"]["defaultFilters"] = {
+      sort: "popularity.desc",
+      type: "all",
+      genres: [],
+      year: {
+        from: 1865,
+        to: 2023,
+      },
+      minRating: 0,
+      language: "en",
+      duration: { min: "any", max: "any" },
+      adult: true,
+    }
+    ret["random"]["filterSettings"] = {
+      type: [
+        { name: "All", value: "all" },
+        { name: "Movies", value: "movies" },
+        { name: "TV Shows", value: "tv-shows" },
+      ],
+      genres: [
+        { name: "Action", value: 28 },
+        { name: "Adventure", value: 12 },
+        { name: "Animation", value: 16 },
+        { name: "Comedy", value: 35 },
+        { name: "Crime", value: 80 },
+        { name: "Documentary", value: 99 },
+        { name: "Drama", value: 18 },
+        { name: "Family", value: 10751 },
+        { name: "Fantasy", value: 14 },
+        { name: "History", value: 36 },
+        { name: "Horror", value: 27 },
+        { name: "Music", value: 10402 },
+        { name: "Mystery", value: 9648 },
+        { name: "Romance", value: 10749 },
+        { name: "Sci Fi", value: 878 },
+        { name: "TV Movie", value: 10770 },
+        { name: "Thriller", value: 53 },
+        { name: "War", value: 10752 },
+        { name: "Western", value: 37 },
+        { name: "Kids", value: 10762 },
+        { name: "News", value: 10763 },
+        { name: "Reality", value: 10764 },
+        { name: "Soap", value: 10766 },
+        { name: "Talk", value: 10767 },
+      ],
+      yearOptions: yearOptions,
+      ratingOptions: ratingOptions,
+      languageOptions: languageOptions.slice(1),
+      durationOptions: [
+        { min: "any", max: 120, name: "Under 2hr" },
+        { min: 180, max: "any", name: "Above 3hr" },
+        { min: "any", max: "any", name: "Any" },
+      ],
+      adult: true,
+    }
+    ret["random"]["defaultFilters"] = {
+      type: "all",
+      genres: [],
+      year: {
+        from: 1865,
+        to: 2023,
+      },
+      minRating: 0,
+      language: "en",
+      duration: { min: "any", max: "any" },
+      adult: true,
+    }
+    res.json(ret)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+
 const lists = async (req, res) => {
   try {
     // const userId = req.query.userId
@@ -716,7 +925,7 @@ const lists = async (req, res) => {
     const token = jsonwebtoken.decode(tokenId, { complete: true })
     // console.log(token.payload)
     const userId = token.payload.email
-    console.log(userId)
+    // console.log(userId)
     const userObject = await pool.query(
       "SELECT * FROM users WHERE user_id = $1",
       [userId]
@@ -936,7 +1145,7 @@ const movie_details = async (req, res) => {
   try {
     const movieId = req.query.id
     const media_type = req.query.media_type
-    console.log(movieId, media_type)
+    // console.log(movieId, media_type)
     ret = await getDetails(movieId, media_type)
     // console.log(ret)
     res.json(ret)
@@ -963,4 +1172,6 @@ module.exports = {
   checkJwt,
   sign_in,
   quick_search,
+  random_movie,
+  filter_settings,
 }

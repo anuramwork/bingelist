@@ -21,6 +21,8 @@ const {
   checkJwt,
   sign_in,
   quick_search,
+  random_movie,
+  filter_settings,
 } = require("../controllers/controllers_bingelist")
 
 // creating the router object
@@ -43,5 +45,7 @@ router.route("/movie_details").get(movie_details)
 router.route("/edit_list").post(checkJwt, edit_list)
 router.route("/get_movie_lists").get(checkJwt, get_movie_lists)
 router.route("/quick_search").get(quick_search)
+router.route("/random_movie").get(random_movie)
+router.route("/filter_settings").get(filter_settings)
 router.route("/sign_in").post(checkJwt, sign_in)
 module.exports = router
