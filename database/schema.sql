@@ -27,6 +27,7 @@ CREATE TABLE list_movies(
     movie_id INT,
     type VARCHAR(10)
 );
+
 -- CREATE TABLE movies(
 --     movie_id INT PRIMARY KEY,
 --     type BOOLEAN,

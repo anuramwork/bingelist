@@ -304,6 +304,117 @@ const create_list = async (req, res) => {
   }
 }
 
+const browse = async (req, res) => {
+  try {
+    /*sort: 'popularity.desc/primary_release_date.desc',
+      type: 'movie/tv',
+      genres: [],
+      yearFrom: any,
+      yearTo: 2022
+      minRating: 0,
+      language: 'en',
+      duration: {min:any, max:120},
+      adult: true*/
+    const defFilters = {
+      sort: "popularity.desc",
+      type: "movie",
+      genres: [],
+      yearFrom: "any",
+      yearTo: "any",
+      minRating: 0,
+      language: "en",
+      duration: { min: "any", max: "any" },
+      adult: true,
+    }
+    var filterSettings = req.body.filters
+    if (filterSettings == undefined) {
+      filterSettings = defFilters
+    }
+    const pageNo = req.query.pageNo
+    const sort = filterSettings.sort
+    const type = filterSettings.type
+    const genres = filterSettings.genres
+    const yearFrom = filterSettings.yearFrom
+    const yearTo = filterSettings.yearTo
+    const minRating = filterSettings.minRating
+    const language = filterSettings.language
+    const duration = filterSettings.duration
+    const adult = filterSettings.adult
+    var yearRange = ""
+    var orginalLanguage = ""
+    var runTime = ""
+    var genreIds = ""
+    if (yearFrom != "any" && type == "movie") {
+      yearRange = yearRange + "&release_date.gte=" + yearFrom + "-01-01"
+    } else if (yearFrom != "any" && type == "tv") {
+      yearRange = yearRange + "&air_date.gte=" + yearFrom + "-01-01"
+    }
+    if (yearTo != "any" && type == "movie") {
+      yearRange = yearRange + "&release_date.lte=" + yearTo + "-12-31"
+    } else if (yearTo != "any" && type == "tv") {
+      yearRange = yearRange + "&air_date.lte=" + yearTo + "-12-31"
+    }
+    if (language != "any") {
+      orginalLanguage = orginalLanguage + "&with_original_language=" + language
+    }
+    if (duration.min != "any") {
+      runTime = runTime + "&with_runtime.gte=" + duration.min
+    }
+    if (duration.max != "any") {
+      runTime = runTime + "&with_runtime.lte=" + duration.max
+    }
+    var i = 0
+    if (genres.length > 0) {
+      genreIds += "&with_genres="
+    }
+    for (; i < genres.length; i++) {
+      if (genres[i] == 28 && type == "tv") {
+        genreIds = genreIds + 10759 + "%2C"
+      } else if (genres[i] == 12 && type == "tv") {
+        genreIds = genreIds + 10759 + "%2C"
+      } else if (genres[i] == 14 && type == "tv") {
+        genreIds = genreIds + 10765 + "%2C"
+      } else if (genres[i] == 878 && type == "tv") {
+        genreIds = genreIds + 10765 + "%2C"
+      } else {
+        genreIds = genreIds + genres[i] + "%2C"
+      }
+    }
+    genreIds = genreIds.slice(0, -3)
+    var API_URL =
+      "https://api.themoviedb.org/3/discover/" +
+      type +
+      "?include_adult=" +
+      adult +
+      "&page=" +
+      pageNo +
+      yearRange +
+      "&sort_by=" +
+      sort +
+      "&vote_average.gte=" +
+      minRating +
+      genreIds +
+      orginalLanguage +
+      runTime
+    console.log(API_URL)
+    const API_TOKEN = constants.API_TOKEN
+    const randomObject = await axios.get(API_URL, {
+      headers: {
+        accept: "application/json",
+        Authorization: API_TOKEN,
+      },
+    })
+    response = {}
+    // console.log(randomObject.data)
+    response["movies"] = transformItems(randomObject.data.results, type)
+    response["currPage"] = randomObject.data.page
+    response["totalPages"] = randomObject.data.total_pages
+    res.json(response)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+
 const random_movie = async (req, res) => {
   try {
     const media_type = req.query.media_type
@@ -331,28 +442,16 @@ const random_movie = async (req, res) => {
 const add_movie_list = async (req, res) => {
   try {
     const allList = req.body
-    // console.log(allList.length)
     const movieId = req.query.id
-    //const userId = req.query.userId
     const tokenId = req.headers.authorization.split("Bearer ")[1]
-    // console.log(req.headers)
     const token = jsonwebtoken.decode(tokenId, { complete: true })
-    // console.log(token.payload)
     const userId = token.payload.email
-    // console.log(allList, movieId, userId)
     const type = req.query.media_type
-    const userObject = await pool.query(
-      "SELECT fav_lid, watch_lid FROM users WHERE user_id=$1",
-      [userId]
-    )
-    const favLId = userObject.rows[0].fav_lid
-    const watchLId = userObject.rows[0].watch_lid
-    // console.log(allList)
+    const favLId = await getfavId(userId)
+    const watchLId = await getWatchId(userId)
     for (let key in allList) {
       var listId = key
       var status = allList[key]
-      // console.log(key)
-      // console.log(listId, status)
       const existObject = await pool.query(
         "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id =$1 AND list_id =$2)",
         [userId, listId]
@@ -360,25 +459,45 @@ const add_movie_list = async (req, res) => {
       var exists = existObject.rows[0].exists
       // console.log(exists)
       if (exists == true && listId != favLId && listId != watchLId) {
-        if (status == true) {
-          // console.log(listId, movieId, type)
+        if (status === true) {
           const addMovie = await pool.query(
-            "INSERT INTO list_movies (list_id, movie_id, type) VALUES ($1, $2, $3) RETURNING *",
-            [listId, movieId, type]
+            "INSERT INTO list_movies (list_id, movie_id, type) SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM list_movies WHERE list_id = $4 AND movie_id = $5 AND type = $6)",
+            [listId, movieId, type, listId, movieId, type]
           )
-          // console.log(listId)
-          console.log("insert")
-          // console.log(addMovie)
-        } else if (status == false) {
+          // console.log("inserted", listId)
+        } else if (status === false) {
           const deleteMovie = await pool.query(
-            "DELETE FROM list_movies WHERE movie_id =$1 AND type = $2",
-            [movieId, type]
+            "DELETE FROM list_movies WHERE movie_id =$1 AND type = $2 AND list_id=$3",
+            [movieId, type, listId]
           )
-          // console.log(listId)
-          console.log("delete")
-          // console.log(deleteMovie.rows[0])
+          // console.log("deleted", listId)
         }
       }
+    }
+    res.sendStatus(200)
+  } catch (err) {
+    console.error(err.message)
+  }
+}
+
+const add_one_movie_to_list = async (req, res) => {
+  try {
+    const movieId = req.query.id
+    const listId = req.query.listId
+    const type = req.query.media_type
+    const tokenId = req.headers.authorization.split("Bearer ")[1]
+    const token = jsonwebtoken.decode(tokenId, { complete: true })
+    const userId = token.payload.email
+    const existObject = await pool.query(
+      "SELECT EXISTS (SELECT 1 FROM user_list WHERE user_id =$1 AND list_id =$2)",
+      [userId, listId]
+    )
+    var exists = existObject.rows[0].exists
+    if (exists == true) {
+      const addMovie = await pool.query(
+        "INSERT INTO list_movies (list_id, movie_id, type) SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM list_movies WHERE list_id = $4 AND movie_id = $5 AND type = $6)",
+        [listId, movieId, type, listId, movieId, type]
+      )
     }
     res.sendStatus(200)
   } catch (err) {
@@ -758,15 +877,23 @@ const genLanguageOptions = async () => {
     },
   })
   // console.log(languagesObject.data.length)
+  function sortList(a, b) {
+    let nameA = a.iso_639_1.toLowerCase()
+    let nameB = b.iso_639_1.toLowerCase()
+    return nameA.localeCompare(nameB)
+  }
+  languagesObject.data = languagesObject.data.slice(1)
+  languagesObject.data.sort(sortList)
   var ret = []
+  ret.push({ name: "Any", value: "any" })
+  // console.log(ret)
   for (var i = 0; i < languagesObject.data.length; i++) {
     ret.push({
       name: languagesObject.data[i].english_name,
       value: languagesObject.data[i].iso_639_1,
     })
   }
-  ret.push({ name: "Any", value: "any" })
-  console.log(ret)
+  // console.log(ret)
   return ret
 }
 
@@ -775,7 +902,6 @@ const genRatingOptions = async () => {
   for (var i = 0; i < 11; i++) {
     ret.push({ name: i, value: i })
   }
-  ret.push({ name: "Any", value: "any" })
   return ret
 }
 
@@ -798,14 +924,14 @@ const filter_settings = async (req, res) => {
     var ret = {}
     ret["browse"] = {}
     ret["random"] = {}
-    ret["browse"]["filterSettings"] = {
+    ret["list"] = {}
+    ret["browse"]["filtersSettings"] = {
       sortOptions: [
         { value: "popularity.desc", name: "Popularity" },
         { value: "primary_release_date.desc", name: "Latest" },
       ],
       type: [
-        { name: "All", value: "all" },
-        { name: "Movies", value: "movies" },
+        { name: "Movies", value: "movie" },
         { name: "TV Shows", value: "tv" },
       ],
       genres: [
@@ -836,7 +962,7 @@ const filter_settings = async (req, res) => {
       ],
       yearOptions: yearOptions,
       ratingOptions: ratingOptions,
-      languageOptions: languageOptions.slice(1),
+      languageOptions: languageOptions,
       durationOptions: [
         { min: "any", max: 120, name: "Under 2hr" },
         { min: 180, max: "any", name: "Above 3hr" },
@@ -846,22 +972,25 @@ const filter_settings = async (req, res) => {
     }
     ret["browse"]["defaultFilters"] = {
       sort: "popularity.desc",
-      type: "all",
+      type: "movie",
       genres: [],
-      year: {
-        from: 1865,
-        to: 2023,
-      },
+      yearFrom: "any",
+      yearTo: "any",
       minRating: 0,
-      language: "en",
+      language: "any",
       duration: { min: "any", max: "any" },
       adult: true,
     }
-    ret["random"]["filterSettings"] = {
+    ret["random"]["filtersSettings"] = {
+      sortOptions: [
+        { value: "popularity.desc", name: "Popularity" },
+        { value: "primary_release_date.desc", name: "Latest" },
+        { value: "last-added", name: "Last added" },
+      ],
       type: [
         { name: "All", value: "all" },
-        { name: "Movies", value: "movies" },
-        { name: "TV Shows", value: "tv-shows" },
+        { name: "Movies", value: "movie" },
+        { name: "TV Shows", value: "tv" },
       ],
       genres: [
         { name: "Action", value: 28 },
@@ -891,7 +1020,7 @@ const filter_settings = async (req, res) => {
       ],
       yearOptions: yearOptions,
       ratingOptions: ratingOptions,
-      languageOptions: languageOptions.slice(1),
+      languageOptions: languageOptions,
       durationOptions: [
         { min: "any", max: 120, name: "Under 2hr" },
         { min: 180, max: "any", name: "Above 3hr" },
@@ -902,12 +1031,63 @@ const filter_settings = async (req, res) => {
     ret["random"]["defaultFilters"] = {
       type: "all",
       genres: [],
-      year: {
-        from: 1865,
-        to: 2023,
-      },
+      yearFrom: "any",
+      yearTo: "any",
       minRating: 0,
-      language: "en",
+      language: "any",
+      duration: { min: "any", max: "any" },
+      adult: true,
+    }
+    ret["list"]["filtersSettings"] = {
+      type: [
+        { name: "All", value: "all" },
+        { name: "Movies", value: "movie" },
+        { name: "TV Shows", value: "tv" },
+      ],
+      genres: [
+        { name: "Action", value: 28 },
+        { name: "Adventure", value: 12 },
+        { name: "Animation", value: 16 },
+        { name: "Comedy", value: 35 },
+        { name: "Crime", value: 80 },
+        { name: "Documentary", value: 99 },
+        { name: "Drama", value: 18 },
+        { name: "Family", value: 10751 },
+        { name: "Fantasy", value: 14 },
+        { name: "History", value: 36 },
+        { name: "Horror", value: 27 },
+        { name: "Music", value: 10402 },
+        { name: "Mystery", value: 9648 },
+        { name: "Romance", value: 10749 },
+        { name: "Sci Fi", value: 878 },
+        { name: "TV Movie", value: 10770 },
+        { name: "Thriller", value: 53 },
+        { name: "War", value: 10752 },
+        { name: "Western", value: 37 },
+        { name: "Kids", value: 10762 },
+        { name: "News", value: 10763 },
+        { name: "Reality", value: 10764 },
+        { name: "Soap", value: 10766 },
+        { name: "Talk", value: 10767 },
+      ],
+      yearOptions: yearOptions,
+      ratingOptions: ratingOptions,
+      languageOptions: languageOptions,
+      durationOptions: [
+        { min: "any", max: 120, name: "Under 2hr" },
+        { min: 180, max: "any", name: "Above 3hr" },
+        { min: "any", max: "any", name: "Any" },
+      ],
+      adult: true,
+    }
+    ret["list"]["defaultFilters"] = {
+      sort: "popularity.desc",
+      type: "any",
+      genres: [],
+      yearFrom: "any",
+      yearTo: "any",
+      minRating: 0,
+      language: "any",
       duration: { min: "any", max: "any" },
       adult: true,
     }
@@ -1174,4 +1354,6 @@ module.exports = {
   quick_search,
   random_movie,
   filter_settings,
+  add_one_movie_to_list,
+  browse,
 }
