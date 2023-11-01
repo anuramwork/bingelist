@@ -26,6 +26,7 @@ CREATE TABLE list_movies(
     list_id UUID REFERENCES lists(list_id),
     movie_id INT,
     type VARCHAR(10)
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- CREATE TABLE movies(
