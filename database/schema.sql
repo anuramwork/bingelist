@@ -28,32 +28,3 @@ CREATE TABLE list_movies(
     type VARCHAR(10)
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- CREATE TABLE movies(
---     movie_id INT PRIMARY KEY,
---     type BOOLEAN,
---     title VARCHAR(255),
---     description VARCHAR(255),
---     image_url VARCHAR(255),
---     duration INTEGER,
---     language VARCHAR(255),
---     trailer_url VARCHAR(255),
---     imdb_rating DECIMAL,
---     director VARCHAR(255),
---     casts JSON,
---     cast_img JSON,
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
--- );
-
-
-
--- CREATE TABLE movies_genre(
---     movie_id INT,
---     genre_id INTEGER REFERENCES genres(genres_id)
--- );
-
--- CREATE TABLE genres(
---     genres_id SERIAL PRIMARY KEY,
---     name VARCHAR(255) NOT NULL
--- );
