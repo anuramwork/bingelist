@@ -1,6 +1,8 @@
 const posterPath = "https://image.tmdb.org/t/p/w500/";
-const API_TOKEN =
-  "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI4ZmMzOTA3Yzg2YjdmNTBkZjQxY2FlN2E4NjZjNzgzMCIsInN1YiI6IjY1M2JkOGU0NTkwN2RlMDBmZTFkZmUzNyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.4LxqLxytdxDhDCnbIr7YTwXnRUmXRzSpBkG42ERgxZs";
+
+const token = process.env.TMDB_API_TOKEN
+const API_TOKEN =  "Bearer " + token
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID 
 const watch_emoji = "✅";
 const fav_emoji = "❤";
 const defaultFilters = {
@@ -821,5 +823,6 @@ module.exports = {
   genres,
   durationOptions,
   type,
-  LANGUAGES_LIST
+  LANGUAGES_LIST,
+  GOOGLE_CLIENT_ID
 };

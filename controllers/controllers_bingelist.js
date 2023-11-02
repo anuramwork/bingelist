@@ -25,8 +25,7 @@ const checkJwt = jwt({
     cache: true,
     rateLimit: true,
   }),
-  audience:
-    "524308456980-3d17hpn4h6qhdnn32oap5q52uta8gbsa.apps.googleusercontent.com", // Replace with your Google Client ID
+  audience: constants.GOOGLE_CLIENT_ID, // Replace with your Google Client ID
   issuer: "https://accounts.google.com", // The issuer should be Google
   algorithms: ["RS256"], // Use the RS256 algorithm
 })
