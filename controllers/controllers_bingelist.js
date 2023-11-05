@@ -702,8 +702,16 @@ const quick_search = async (req, res) => {
   }
 }
 
+const discoverResults = {results: null,
+                          expiry: null}
 const discover = async (req, res) => {
   try {
+
+    if (discoverResults.results !== null && discoverResults.expiry > new Date().toJSON()) {
+      res.json(discoverResults.results)
+      return
+    }
+
     const trending_API_URL =
       "https://api.themoviedb.org/3/trending/all/week?language=en-US"
     const upcomingMovie_API_URL =
@@ -746,7 +754,10 @@ const discover = async (req, res) => {
       popularObjectTV.data.results,
       "tv"
     )
-
+    
+    discoverResults.results = resultList
+    discoverResults.expiry = new Date(new Date().getTime() + 60 * 60 * 1000).toJSON()
+    
     res.send(resultList)
   } catch (err) {
     console.error(err.message)
